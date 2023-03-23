@@ -9,7 +9,7 @@ from PIL import Image
 dataset_dir = './'
 dataset_folder = 'MultiImageSteganography'
 dataset_path = os.path.join(dataset_dir,dataset_folder)
-training_folder_dir = './train'
+training_folder_dir = './tiny-imagenet-200/train'
 
 def delete_image(image_path): 
     if '.txt' in image_path:
@@ -24,7 +24,8 @@ def delete_image(image_path):
 if not os.path.exists(dataset_path):
     os.makedirs(dataset_path)
 
-
+last_success_train_source = None
+last_success_validation_source = None
 for i,folder in enumerate(os.listdir(training_folder_dir)):
     files =  os.listdir(os.path.join(training_folder_dir,folder,'images'))
 
@@ -34,9 +35,23 @@ for i,folder in enumerate(os.listdir(training_folder_dir)):
     selected_files = random.sample(files, 14)
     validation_images,train_images = selected_files[:4],selected_files[4:]
     for image in train_images:
-        shutil.copyfile(os.path.join(training_folder_dir,folder,'images',image),os.path.join(dataset_path,'train',image))
+        try:
+            shutil.copyfile(os.path.join(training_folder_dir,folder,'images',image),os.path.join(dataset_path,'train',image))
+        except FileNotFoundError as exc:
+            if not last_success_train_source:
+                raise exc
+            shutil.copyfile(last_success_train_source,os.path.join(dataset_path,'train',image))
+        else:
+            last_success_train_source = os.path.join(training_folder_dir,folder,'images',image)
     for image in validation_images:
-        shutil.copyfile(os.path.join(training_folder_dir,folder,'images',image),os.path.join(dataset_path,'valid',image))
+        try:
+            shutil.copyfile(os.path.join(training_folder_dir,folder,'images',image),os.path.join(dataset_path,'valid',image))
+        except FileNotFoundError as exc:
+            if not last_success_validation_source:
+                raise exc
+            shutil.copyfile(last_success_validation_source,os.path.join(dataset_path,'train',image))
+        else:
+            last_success_validation_source = os.path.join(training_folder_dir,folder,'images',image)
 
 
 training_images = os.listdir(os.path.join(dataset_path,'train'))
