@@ -6,6 +6,7 @@ from steganographer.utils import get_image_tensor_from_filepath, save_image_from
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# DEVICE = torch.device('cpu')
 
 
 def get_model():
