@@ -1,17 +1,63 @@
 import torch
+import torchvision
 from torch import nn
+from PIL import Image
 import torch.nn.functional as F
 
-from steganographer.utils import get_image_tensor_from_filepath, save_image_from_tensor_to_path
 
-
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# DEVICE = torch.device('cpu')
+IMG_SIZE = 200
+DEVICE = torch.device('cpu')
+PIL_TRANSFORMER = torchvision.transforms.ToPILImage()
 
 
 def get_model():
-    return torch.load("models/model_1000.pkl", map_location=DEVICE)
+    model = torch.load("models/model_1000.pkl", map_location=DEVICE)
+    model.eval()
+    return model
     
+
+def to_image(tensor):
+    return PIL_TRANSFORMER(tensor)
+
+
+class SteganoDataset(torch.utils.data.Dataset):
+    transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize((IMG_SIZE,IMG_SIZE)),
+        torchvision.transforms.ToTensor(),
+    ])
+
+    def __init__(self, cover_image_path, secret_image1_path, secret_image2_path, secret_image3_path):
+        self.cover_image_path = cover_image_path
+        self.secret_image1_path = secret_image1_path
+        self.secret_image2_path = secret_image2_path
+        self.secret_image3_path = secret_image3_path
+    
+    def __getitem__(self,index):        
+        cover_image = Image.open(self.cover_image_path)
+        if self.secret_image1_path:
+            secret_image1 = Image.open(self.secret_image1_path)
+            secret_image2 = Image.open(self.secret_image2_path)
+            secret_image3 = Image.open(self.secret_image3_path)
+            
+            transformed_cover_image = self.transforms(cover_image)
+            transformed_secret_image_1 = self.transforms(secret_image1)
+            transformed_secret_image_2 = self.transforms(secret_image2)
+            transformed_secret_image_3 = self.transforms(secret_image3)
+
+            return {
+                'cover_image':transformed_cover_image,
+                'secret_image_1':transformed_secret_image_1,
+                'secret_image_2':transformed_secret_image_2,
+                'secret_image_3':transformed_secret_image_3
+            }
+        transformed_hidden_image = self.transforms(cover_image)
+        return {
+            'hidden_image': transformed_hidden_image
+        }
+    
+    def __len__(self):
+        return 1
+
 
 class PrepNetwork1(nn.Module):
     def __init__(self):
@@ -399,6 +445,46 @@ class SteganoModel(nn.Module):
 steganographer = get_model()
 
 
+def encrypt(cover_image_path, secret_image1_path, secret_image2_path, secret_image3_path):
+    dataset = SteganoDataset(cover_image_path, secret_image1_path, secret_image2_path, secret_image3_path)
+    dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, drop_last=True, num_workers=0)
+    predict_dict = next(iter(dataset_loader))
+    
+    cover_image = predict_dict['cover_image']
+    cover_image = cover_image.to(DEVICE)
+
+    secret_image_1 = predict_dict['secret_image_1']
+    secret_image_1 = secret_image_1.to(DEVICE)
+
+    secret_image_2 = predict_dict['secret_image_2']
+    secret_image_2 = secret_image_2.to(DEVICE)
+
+    secret_image_3 = predict_dict['secret_image_3']
+    secret_image_3 = secret_image_3.to(DEVICE)
+
+    hidden_image = steganographer.encrypt(cover_image, secret_image_1, secret_image_2, secret_image_3)
+    
+    hidden_image = hidden_image.to(DEVICE).squeeze()
+    return hidden_image
+
+
+def decrypt(hidden_image_path):
+    dataset = SteganoDataset(hidden_image_path, None, None, None)
+    dataset_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, drop_last=True, num_workers=0)
+    predict_dict = next(iter(dataset_loader))
+
+    hidden_image = predict_dict['hidden_image']
+    hidden_image = hidden_image.to(DEVICE)
+
+    reveal_image1, reveal_image2, reveal_image3 = steganographer.decrypt(hidden_image)
+    
+    reveal_image1 = reveal_image1.to(DEVICE).squeeze()
+    reveal_image2 = reveal_image2.to(DEVICE).squeeze()
+    reveal_image3 = reveal_image3.to(DEVICE).squeeze()
+
+    return reveal_image1, reveal_image2, reveal_image3
+
+
 
 def test():
     cover_image_path = "test_images/cover.jpg"
@@ -408,14 +494,26 @@ def test():
         "test_images/secret3.jpg",
     ]
 
-    cover_image_tensor = get_image_tensor_from_filepath(cover_image_path, DEVICE)
-    secret_images_tensors = [get_image_tensor_from_filepath(fp, DEVICE) for fp in secret_images_paths]
+    hidden_image_tensor = encrypt(cover_image_path, *secret_images_paths)
+    hidden_image = to_image(hidden_image_tensor)
+    hidden_image.save("test_images/result.png")
+    print('nice')
 
-    hidden_image_tensor = steganographer.encrypt(cover_image_tensor, *secret_images_tensors)
 
-    save_image_from_tensor_to_path(hidden_image_tensor, "test.png")
-    return ...
+def test_decrypt():
+    encrypted_image_path = "test_images/result.png"
+    reveal_image1, reveal_image2, reveal_image3 = decrypt(encrypted_image_path)
+
+    reveal_image1 = to_image(reveal_image1)
+    reveal_image2 = to_image(reveal_image2)
+    reveal_image3 = to_image(reveal_image3)
+
+    reveal_image1.save("test_images/decrypted-result-secret1.png")
+    reveal_image2.save("test_images/decrypted-result-secret2.png")
+    reveal_image3.save("test_images/decrypted-result-secret3.png")
+
+    print('nice again')
 
 
 if __name__ == "__main__":
-    test()
+    test_decrypt()
